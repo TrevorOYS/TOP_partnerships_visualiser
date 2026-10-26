@@ -199,7 +199,24 @@ h1{font-family:var(--font-display);font-weight:400;font-size:clamp(56px,11vw,112
   .row.line .l-main{grid-area:main}
   .row.line .l-nums{grid-area:nums;flex-wrap:wrap}
   .row.line .rm{grid-area:rm;align-self:start}
+  .row.line{grid-template-areas:"main rm" "nums nums" "vp vp"}
+  .row.line .vpanel{grid-area:vp}
 }
+
+/* ---- voucher details (type, terms, redemption conditions) ---- */
+.adder-grid.no-unit{grid-template-columns:minmax(0,1fr) 110px auto}
+.vpanel{grid-column:1/-1;display:grid;gap:12px;margin-top:12px;padding-top:14px;border-top:1px dashed var(--rule)}
+.row.line .vpanel{margin-top:0}
+.v-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.vpanel .amt{width:100%;height:42px}
+.v-rx{border:0;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px 16px}
+.v-rx legend{padding:0;margin-bottom:6px}
+.v-rx .vtag input:disabled+span{color:var(--muted)}
+.v-calc{margin:0;font-size:13.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.v-calc strong{color:var(--ink)}
+.vpanel .hint{font-size:12.5px;color:var(--muted);margin:0}
+select.in{appearance:auto}
+.be{font-weight:600;line-height:40px;font-variant-numeric:tabular-nums}
 </style>
 
 <div class="dots" aria-hidden="true"></div>
@@ -222,13 +239,14 @@ h1{font-family:var(--font-display);font-weight:400;font-size:clamp(56px,11vw,112
           <div class="adder-grid">
             <label class="fld f-name"><span class="f-label">Item</span><input class="in" id="in-name" maxlength="80" autocomplete="off" placeholder="e.g. Our new product range, vouchers, catering"></label>
             <label class="fld f-qty"><span class="f-label">Quantity</span><input class="in" id="in-qty" inputmode="numeric" autocomplete="off" value="1"></label>
-            <label class="fld f-unit"><span class="f-label">Value each</span><span class="amt"><span id="in-cur">S$</span><input class="amt-input" id="in-unit" inputmode="decimal" autocomplete="off" placeholder="0"></span></label>
+            <label class="fld f-unit" id="f-unit"><span class="f-label" id="unit-label">Value each</span><span class="amt"><span id="in-cur">S$</span><input class="amt-input" id="in-unit" inputmode="decimal" autocomplete="off" placeholder="0"></span></label>
             <div class="f-go"><button class="btn" type="submit">Add item</button></div>
           </div>
           <div class="adder-foot">
             <label class="vtag"><input type="checkbox" id="in-voucher"> <span id="vlabel">This is a voucher</span></label>
             <span class="preview" id="preview" aria-live="polite"></span>
           </div>
+          <div class="vpanel" id="in-vpanel" hidden></div>
           <p class="err" id="err" role="alert" hidden></p>
           <div class="ideas">
             <p class="f-label">Ideas to start from</p>
@@ -248,6 +266,7 @@ h1{font-family:var(--font-display);font-weight:400;font-size:clamp(56px,11vw,112
       <p class="total" id="total" aria-live="polite">S$0</p>
       <div id="tierLine"></div>
       <p class="gap" id="gap"></p>
+      <p class="note" id="disclaimer"></p>
 
       <div class="ladder" id="ladder">
         <div class="track"><div class="fill" id="fill"></div></div>
@@ -259,6 +278,7 @@ h1{font-family:var(--font-display);font-weight:400;font-size:clamp(56px,11vw,112
       <div class="lines">
         <h3>Your selections</h3>
         <ul id="lines"></ul>
+        <p class="note" id="vnote" hidden></p>
       </div>
 
       <div class="actions">
@@ -291,7 +311,8 @@ h1{font-family:var(--font-display);font-weight:400;font-size:clamp(56px,11vw,112
    ORGANISER: edit this block. Everything on the page is built from it.
    - TIERS must run from lowest to highest minimum. Colours follow tier order.
    - IDEAS are only suggestions. Tapping one fills the sponsor's add-item form (name, quantity, value each).
-   - Sponsors can add any item of their own. Items they tick as vouchers are limited by VOUCHER_CAP.
+   - Sponsors can add any item of their own. Items they tick as vouchers are valued by the voucher rules below
+     (Voucher_SCV_Ruleset.md): gross value x accessibility factor, then the shared VOUCHER_CAP.
    ============================================================ */
 const EVENT = {
   name: "Tower of Power",
@@ -300,7 +321,8 @@ const EVENT = {
   venue: "SMU Campus Green",
   contact: "partnerships.top@gmail.com",
   currency: "S$",
-  note: "In-kind values are estimates and will be confirmed with the organiser."
+  note: "In-kind values are estimates and will be confirmed with the organiser.",
+  disclaimer: "The total contribution value shown is an estimate only and is subject to verification by the Partnerships Committee of Tower of Power (ToP)."
 };
 
 const TIERS = [
@@ -340,14 +362,42 @@ const TIERS = [
 
 const IDEAS = [
   { name:"Grand prize",              qty:1,  unit:1000 },
-  { name:"Vouchers",                 qty:1,  unit:1000, voucher:true },
+  { name:"Cash vouchers",            qty:100, unit:20, voucher:true, vtype:"fixed" },
   { name:"Guest gift bags",          qty:50, unit:15 },
   { name:"Cash contribution",        qty:1,  unit:1000 }
 ];
 
 const SEED = [];                         // items shown on first load (empty: sponsors start fresh)
-/* Most that voucher items (marked voucher:true) can count toward the total. Set to 0 to turn the cap off. */
-const VOUCHER_CAP = 7000;
+/* Most that voucher items can count toward the total, after the accessibility factor. Cash (fixed-value) vouchers
+   with no redemption conditions are exempt and count in full. Set to 0 to turn the cap off. */
+const VOUCHER_CAP = 8000;
+
+/* Voucher types. base: field label for the price the discount is taken off (unused for fixed-value, which uses the
+   face value); noun: the same in words, for prompts and the copied summary. */
+const VTYPES = [
+  { k:"fixed",    label:"Cash voucher (fixed value)" },
+  { k:"product",  label:"% off a specific product",    base:"Product U.P.", noun:"product unit price" },
+  { k:"minspend", label:"% off with a minimum spend",  base:"Minimum spend", noun:"minimum spend", forced:["minspend"] },
+  { k:"open",     label:"% off any purchase",          base:"Avg. spend per cust.", noun:"average spend per customer",
+    hint:"Use a figure you can back up, such as your average transaction value." }
+];
+/* Redemption conditions the sponsor ticks. The count sets the accessibility factor; sponsors never choose it. */
+const CONDITIONS = [
+  { k:"minspend", label:"Minimum spend required" },
+  { k:"audience", label:"New customers or a selected audience only" },
+  { k:"scope",    label:"Selected products, outlets or channels only" },
+  { k:"validity", label:"Short validity period" },
+  { k:"nostack",  label:"Cannot be combined with other promotions" },
+  { k:"other",    label:"Other exclusions or redemption hurdles" }
+];
+/* Accessibility factor by number of conditions: none, one, two or more. */
+const VAF_STEPS = [1, 0.75, 0.5];
+/* Admin mode shows the redemption-condition checklist. Off for sponsors: they enter only the voucher type and its
+   values, and get the standard estimate (only a voucher type's built-in conditions apply, e.g. minimum spend).
+   Admins can also turn it on for one visit by adding ?admin=1 to the page URL. */
+const ADMIN_MODE = false;
+/* ============================================================ */
+const ADMIN = ADMIN_MODE || /[?&]admin=1(&|$)/.test(location.search);
 /* ============================================================ */
 
 const $ = (s,r=document)=>r.querySelector(s);
@@ -355,23 +405,84 @@ const cur = EVENT.currency;
 const money = n => { n = Math.round(n*100)/100; return cur + (Number.isInteger(n) ? n.toLocaleString('en-US') : n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})); };
 const fmtNum = n => n ? n.toLocaleString('en-US',{maximumFractionDigits:2}) : '';
 const MAX_QTY = 100000, MAX_UNIT = 1000000;
-const capNote = VOUCHER_CAP>0 ? ` Voucher value counts up to ${money(VOUCHER_CAP)} in total.` : '';
+const pctOf = f => Math.round(f*100)+'%';
+const capNote = ADMIN
+  ? ` Vouchers are credited at what recipients can redeem: gross value adjusted for redemption conditions (none ${pctOf(VAF_STEPS[0])}, one ${pctOf(VAF_STEPS[1])}, two or more ${pctOf(VAF_STEPS[2])})${VOUCHER_CAP>0 ? `, up to ${money(VOUCHER_CAP)} in total. Cash vouchers with no conditions count in full` : ''}.`
+  : ` Voucher values are estimates: gross value at ${pctOf(VAF_STEPS[0])} (${pctOf(VAF_STEPS[1])} for minimum-spend vouchers)${VOUCHER_CAP>0 ? `, with discount vouchers counting up to ${money(VOUCHER_CAP)} in total` : ''}. The final credit is confirmed once we have reviewed the full voucher terms.`;
 const esc = t => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = t => { const n = parseFloat(String(t).replace(/[^\d.]/g,'')); return isFinite(n) ? n : 0; };
 const int = t => parseInt(String(t).replace(/\D/g,''),10) || 0;
 
 let lines = [], nextId = 1, touched = false;
-const addLine = d => lines.push({ id: nextId++, name: d.name, qty: d.qty, unit: d.unit, voucher: !!d.voucher });
+const vDefaults = () => ({ vtype:"fixed", disc:0, base:0, maxd:0, rx:[] });
+const addLine = d => lines.push({ ...vDefaults(), ...d, id: nextId++, voucher: !!d.voucher, rx: [...(d.rx||[])] });
 SEED.forEach(addLine);
 
-const raw = l => Math.round((l.qty||0)*(l.unit||0)*100)/100;
-const voucherRaw = () => lines.reduce((s,l)=>s+(l.voucher ? raw(l) : 0),0);
+/* ---------- voucher valuation (see Voucher_SCV_Ruleset.md) ---------- */
+const r2 = n => Math.round(n*100)/100;
+const vt = l => VTYPES.find(t=>t.k===l.vtype) || VTYPES[0];
+const conds = l => [...new Set([...(vt(l).forced||[]), ...(ADMIN ? l.rx||[] : [])])];
+const vaf = l => VAF_STEPS[Math.min(conds(l).length, VAF_STEPS.length-1)];
+/* Benefit per voucher: face value, or the discount on the base price, limited by any max discount. */
+function benefit(l){
+  if(vt(l).k==='fixed') return l.unit||0;
+  const b = (l.base||0)*(l.disc||0)/100;
+  return l.maxd>0 ? Math.min(b, l.maxd) : b;
+}
+const gross = l => r2((l.qty||0)*(l.voucher ? benefit(l) : (l.unit||0)));
+const exempt = l => l.voucher && vt(l).k==='fixed' && conds(l).length===0;
+/* Value before the shared voucher cap: items at face value, vouchers at gross x accessibility factor. */
+const raw = l => l.voucher ? r2(gross(l)*vaf(l)) : gross(l);
+const voucherRaw = () => lines.reduce((s,l)=>s+(l.voucher && !exempt(l) ? raw(l) : 0),0);
 const counted = l => {
   const v = raw(l);
-  if(!l.voucher || !(VOUCHER_CAP>0)) return v;
+  if(!l.voucher || exempt(l) || !(VOUCHER_CAP>0)) return v;
   const sum = voucherRaw();
   return sum>VOUCHER_CAP ? v*VOUCHER_CAP/sum : v;
 };
+const condText = n => n===0 ? 'no conditions' : n===1 ? '1 condition' : n+' conditions';
+function calcHTML(l){
+  if(!(gross(l)>0)) return vt(l).k==='fixed'
+    ? 'Enter the quantity and face value to see what these vouchers are credited at.'
+    : `Enter the discount and ${vt(l).noun} to see what these vouchers are credited at.`;
+  const n = conds(l).length, why = ADMIN ? condText(n) : (n ? 'minimum spend' : '');
+  let s = `${ADMIN ? '' : 'Estimated credit: '}Gross value <strong>${money(gross(l))}</strong> &times; ${pctOf(vaf(l))}${why ? ` (${why})` : ''} = <strong>${money(raw(l))}</strong>.`;
+  if(exempt(l)) s += ADMIN ? ' A cash voucher with no conditions counts in full, with no cap.' : ' Cash vouchers count in full, with no cap.';
+  else if(VOUCHER_CAP>0) s += ` Counts toward the ${money(VOUCHER_CAP)} voucher cap.`;
+  return s;
+}
+function vpanelHTML(l){
+  const T = vt(l), forced = T.forced||[];
+  const opts = VTYPES.map(t=>`<option value="${t.k}"${t.k===T.k?' selected':''}>${esc(t.label)}</option>`).join('');
+  const pct = T.k==='fixed' ? '' : `
+      <label class="fld"><span class="f-label">Discount</span><span class="amt"><input class="amt-input" data-f="disc" inputmode="decimal" autocomplete="off" placeholder="0" value="${fmtNum(l.disc)}"><span>%</span></span></label>
+      <label class="fld"><span class="f-label">${esc(T.base)}</span><span class="amt"><span>${cur}</span><input class="amt-input" data-f="base" inputmode="decimal" autocomplete="off" placeholder="0" value="${fmtNum(l.base)}"></span></label>
+      <label class="fld"><span class="f-label">Max discount each</span><span class="amt"><span>${cur}</span><input class="amt-input" data-f="maxd" inputmode="decimal" autocomplete="off" placeholder="None" value="${fmtNum(l.maxd)}"></span></label>`;
+  const rx = CONDITIONS.map(c=>{
+    const f = forced.includes(c.k), on = f || (l.rx||[]).includes(c.k);
+    return `<label class="vtag"${f?` title="Applies to every ${esc(T.label.toLowerCase())} voucher"`:''}><input type="checkbox" data-f="rx" data-k="${c.k}"${on?' checked':''}${f?' disabled':''}> <span>${esc(c.label)}</span></label>`;
+  }).join('');
+  return `<div class="v-fields">
+      <label class="fld"><span class="f-label">Voucher type</span><select class="in" data-f="vtype">${opts}</select></label>${pct}
+    </div>
+    ${T.hint ? `<p class="hint">${esc(T.hint)}</p>` : ''}
+    ${ADMIN ? `<fieldset class="v-rx"><legend class="f-label">Redemption conditions (tick all that apply)</legend>${rx}</fieldset>` : ''}
+    <p class="v-calc" data-calc>${calcHTML(l)}</p>`;
+}
+/* Applies one edited field to a line. Returns true when the row's layout changes and must be rebuilt. */
+function setField(l, el){
+  const f = el.dataset.f, v = el.value;
+  if(f==='name') l.name = v;
+  else if(f==='qty') l.qty = Math.min(int(v), MAX_QTY);
+  else if(f==='unit') l.unit = Math.min(num(v), MAX_UNIT);
+  else if(f==='voucher'){ l.voucher = el.checked; return true; }
+  else if(f==='vtype'){ l.vtype = v; return true; }
+  else if(f==='disc') l.disc = Math.min(num(v), 100);
+  else if(f==='base') l.base = Math.min(num(v), MAX_UNIT);
+  else if(f==='maxd') l.maxd = Math.min(num(v), MAX_UNIT);
+  else if(f==='rx'){ const s = new Set(l.rx); el.checked ? s.add(el.dataset.k) : s.delete(el.dataset.k); l.rx = [...s]; }
+  return false;
+}
 const total = () => lines.reduce((s,l)=>s+counted(l),0);
 const tierFor = v => { let t=null; TIERS.forEach(x=>{ if(v>=x.min) t=x; }); return t; };
 const nextTier = v => TIERS.find(x=>v<x.min) || null;
@@ -398,6 +509,12 @@ function chipHTML(l){
   return `${lead}On its own: below ${TIERS[0].name}`;
 }
 function rowHTML(l){
+  const pctV = l.voucher && vt(l).k!=='fixed';
+  const unitLabel = l.voucher ? 'Face value each' : 'Value each';
+  const unit = pctV
+    ? `<div class="field l-unit"><span class="f-label">Benefit each</span><strong class="be">${money(benefit(l))}</strong></div>`
+    : `<div class="field l-unit"><span class="f-label">${unitLabel}</span>
+        <label class="amt"><span>${cur}</span><input class="amt-input" data-f="unit" inputmode="decimal" value="${fmtNum(l.unit)}" aria-label="${unitLabel}"></label></div>`;
   return `<div class="row line" data-lid="${l.id}">
     <div class="l-main">
       <input class="n-input" data-f="name" value="${esc(l.name)}" maxlength="80" aria-label="Item name">
@@ -406,12 +523,18 @@ function rowHTML(l){
     <div class="l-nums">
       <div class="field"><span class="f-label">Quantity</span>
         <div class="stepper"><button type="button" data-act="dec" aria-label="Decrease quantity">&minus;</button><input data-f="qty" inputmode="numeric" value="${l.qty}" aria-label="Quantity"><button type="button" data-act="inc" aria-label="Increase quantity">+</button></div></div>
-      <div class="field l-unit"><span class="f-label">Value each</span>
-        <label class="amt"><span>${cur}</span><input class="amt-input" data-f="unit" inputmode="decimal" value="${fmtNum(l.unit)}" aria-label="Value each"></label></div>
-      <div class="field l-total"><span class="f-label">Total</span><strong class="lt">${money(counted(l))}</strong></div>
+      ${unit}
+      <div class="field l-total"><span class="f-label">${l.voucher ? 'Credited' : 'Total'}</span><strong class="lt">${money(counted(l))}</strong></div>
     </div>
     <button type="button" class="rm" data-act="remove" aria-label="Remove item">&times;</button>
+    ${l.voucher ? `<div class="vpanel">${vpanelHTML(l)}</div>` : ''}
   </div>`;
+}
+/* Rebuilds one row (after its layout changes) and puts focus back on the field that was edited. */
+function rebuildRow(l, f){
+  const old = listEl.querySelector(`[data-lid="${l.id}"]`); if(!old) return;
+  old.insertAdjacentHTML('afterend', rowHTML(l)); old.remove();
+  const el = listEl.querySelector(`[data-lid="${l.id}"] [data-f="${f}"]`); if(el) el.focus();
 }
 function renderList(){
   listEl.innerHTML = lines.length ? lines.map(rowHTML).join('') : `<div class="empty-row">Nothing added yet. Use the form above, or tap an idea to start.</div>`;
@@ -421,6 +544,8 @@ function refreshRows(){
     const row = listEl.querySelector(`[data-lid="${l.id}"]`); if(!row) return;
     $('.lt',row).textContent = money(counted(l));
     $('.chip',row).innerHTML = chipHTML(l);
+    const be = $('.be',row); if(be) be.textContent = money(benefit(l));
+    const calc = $('[data-calc]',row); if(calc) calc.innerHTML = calcHTML(l);
   });
 }
 const rowOf = el => { const r = el.closest('[data-lid]'); return r ? { row:r, line:lines.find(x=>x.id===+r.dataset.lid) } : null; };
@@ -437,36 +562,60 @@ listEl.addEventListener('click', e=>{
 listEl.addEventListener('input', e=>{
   const f = e.target.dataset && e.target.dataset.f; if(!f) return;
   const h = rowOf(e.target); if(!h || !h.line) return;
-  const l = h.line;
-  if(f==='name') l.name = e.target.value;
-  else if(f==='qty') l.qty = Math.min(int(e.target.value), MAX_QTY);
-  else if(f==='unit') l.unit = Math.min(num(e.target.value), MAX_UNIT);
-  else if(f==='voucher') l.voucher = e.target.checked;
+  if(setField(h.line, e.target)) rebuildRow(h.line, f);
   touched = true; update();
 });
 listEl.addEventListener('focusout', e=>{
   const f = e.target.dataset && e.target.dataset.f; if(!f) return;
   const h = rowOf(e.target); if(!h || !h.line) return;
   if(f==='qty'){ h.line.qty = h.line.qty || 1; e.target.value = h.line.qty; update(); }
-  if(f==='unit') e.target.value = fmtNum(h.line.unit);
+  if(['unit','disc','base','maxd'].includes(f)) e.target.value = fmtNum(h.line[f]);
 });
 
 /* ---------- add-item form ---------- */
 const form = $('#adder'), inName = $('#in-name'), inQty = $('#in-qty'), inUnit = $('#in-unit'), inV = $('#in-voucher'), err = $('#err'), prev = $('#preview');
-function preview(){ const q = int(inQty.value), u = num(inUnit.value); prev.textContent = (q>0 && u>0) ? `= ${money(q*u)}` : ''; }
+const vp = $('#in-vpanel'), fUnit = $('#f-unit'), grid = $('.adder-grid', form);
+let draft = vDefaults();
+const draftLine = () => ({ ...draft, qty: Math.min(int(inQty.value),MAX_QTY), unit: Math.min(num(inUnit.value),MAX_UNIT), voucher: inV.checked });
+/* Shows the voucher details when the item is a voucher; % vouchers have no face value, so the value field hides. */
+function renderFormVoucher(){
+  const on = inV.checked, pctV = on && draft.vtype!=='fixed';
+  vp.hidden = !on; vp.innerHTML = on ? vpanelHTML(draft) : '';
+  fUnit.hidden = pctV; grid.classList.toggle('no-unit', pctV);
+  $('#unit-label').textContent = on ? 'Face value each' : 'Value each';
+  preview();
+}
+function preview(){
+  const l = draftLine(), v = raw(l);
+  const shown = l.voucher && !exempt(l) && VOUCHER_CAP>0 ? Math.min(v, VOUCHER_CAP) : v;
+  prev.textContent = (l.qty>0 && v>0) ? `= ${money(shown)}${l.voucher ? ' credited' : ''}` : '';
+  const calc = $('[data-calc]', vp); if(calc) calc.innerHTML = calcHTML(l);
+}
 inQty.addEventListener('input', preview); inUnit.addEventListener('input', preview);
+inV.addEventListener('change', renderFormVoucher);
+vp.addEventListener('input', e=>{
+  if(!e.target.dataset.f) return;
+  if(setField(draft, e.target)){ renderFormVoucher(); const el = $(`[data-f="${e.target.dataset.f}"]`, vp); if(el) el.focus(); }
+  else preview();
+});
+vp.addEventListener('focusout', e=>{
+  const f = e.target.dataset && e.target.dataset.f;
+  if(['disc','base','maxd'].includes(f)) e.target.value = fmtNum(draft[f]);
+});
 form.addEventListener('submit', e=>{
   e.preventDefault();
-  const name = inName.value.trim(), q = int(inQty.value), u = num(inUnit.value);
+  const name = inName.value.trim(), l = draftLine(), T = vt(l), pctV = l.voucher && T.k!=='fixed';
   let msg = '', f = null;
   if(!name){ msg = 'Give the item a name.'; f = inName; }
-  else if(q<1){ msg = 'Quantity must be at least 1.'; f = inQty; }
-  else if(!(u>0)){ msg = 'Enter what each one is worth.'; f = inUnit; }
+  else if(l.qty<1){ msg = 'Quantity must be at least 1.'; f = inQty; }
+  else if(pctV && !(l.disc>0)){ msg = 'Enter the discount percentage.'; f = $('[data-f="disc"]',vp); }
+  else if(pctV && !(l.base>0)){ msg = `Enter the ${T.noun}.`; f = $('[data-f="base"]',vp); }
+  else if(!pctV && !(l.unit>0)){ msg = l.voucher ? 'Enter the face value of each voucher.' : 'Enter what each one is worth.'; f = inUnit; }
   if(msg){ err.textContent = msg; err.hidden = false; f.focus(); return; }
   err.hidden = true;
-  addLine({ name, qty: Math.min(q,MAX_QTY), unit: Math.min(u,MAX_UNIT), voucher: inV.checked });
+  addLine({ ...l, name, unit: pctV ? 0 : l.unit });
   touched = true; renderList(); update();
-  inName.value = ''; inQty.value = '1'; inUnit.value = ''; inV.checked = false; preview(); inName.focus();
+  inName.value = ''; inQty.value = '1'; inUnit.value = ''; inV.checked = false; draft = vDefaults(); renderFormVoucher(); inName.focus();
 });
 const ideasEl = $('#ideas');
 ideasEl.innerHTML = IDEAS.map((d,i)=>`<button type="button" class="idea" data-i="${i}">${esc(d.name)} <span>${money(d.unit)} each</span></button>`).join('');
@@ -474,10 +623,11 @@ ideasEl.addEventListener('click', e=>{
   const b = e.target.closest('.idea'); if(!b) return;
   const d = IDEAS[+b.dataset.i];
   inName.value = d.name; inQty.value = d.qty; inUnit.value = d.unit; inV.checked = !!d.voucher;
-  err.hidden = true; preview(); inQty.focus(); inQty.select();
+  draft = { ...vDefaults(), vtype: d.vtype || 'fixed' };
+  err.hidden = true; renderFormVoucher(); inQty.focus(); inQty.select();
 });
 $('#in-cur').textContent = cur;
-$('#vlabel').textContent = VOUCHER_CAP>0 ? `This is a voucher (counts up to ${money(VOUCHER_CAP)} in total)` : 'This is a voucher';
+$('#vlabel').textContent = 'This is a voucher';
 
 /* ---------- ladder ---------- */
 const rungEls = [];
@@ -548,6 +698,13 @@ function update(){
     ? active.map(l=>`<li><span class="ln">${esc(l.name || 'Untitled item')}${l.qty>1?` <span class="qty">&times; ${l.qty}</span>`:''}${counted(l)<raw(l)?' <span class="qty">(capped)</span>':''}</span><span class="lv">${money(counted(l))}</span></li>`).join('')
       + `<li class="sum"><span class="ln">Total</span><span class="lv">${money(t)}</span></li>`
     : `<li class="empty">Nothing added yet. Add an item to see it here.</li>`;
+
+  const vs = active.filter(l=>l.voucher), vn = $('#vnote');
+  vn.hidden = !vs.length;
+  if(vs.length){
+    const g = vs.reduce((s,l)=>s+gross(l),0), c = vs.reduce((s,l)=>s+counted(l),0);
+    vn.textContent = `Vouchers: ${money(g)} gross value, ${money(c)} credited after redemption conditions${VOUCHER_CAP>0 ? ' and the voucher cap' : ''}.`;
+  }
 }
 
 function fitSummary(){
@@ -567,11 +724,19 @@ function summaryText(){
   const t = total(), tier = tierFor(t);
   const get = tier ? tier.perks.map(x=>`- ${x}`) : ['- No tier benefits yet'];
   const give = lines.filter(l=>raw(l)>0).map(l=>{
-    const capped = counted(l) < raw(l);
-    const detail = l.qty>1 ? `${l.qty} x ${money(l.unit)} = ${money(counted(l))}` : money(counted(l));
-    return `- ${l.name || 'Untitled item'}${l.voucher && !/voucher/i.test(l.name||'') ?' (voucher)':''}: ${detail}${capped?' (capped)':''}`;
+    const capped = counted(l) < raw(l), name = l.name || 'Untitled item';
+    if(!l.voucher){
+      const detail = l.qty>1 ? `${l.qty} x ${money(l.unit)} = ${money(counted(l))}` : money(counted(l));
+      return `- ${name}: ${detail}${capped?' (capped)':''}`;
+    }
+    const T = vt(l), c = conds(l);
+    const terms = T.k==='fixed' ? `${money(l.unit)} face value`
+      : `${fmtNum(l.disc)}% off, ${T.noun} ${money(l.base)}${l.maxd>0 ? `, max ${money(l.maxd)} off` : ''}`;
+    return [`- ${name} (${T.label}; ${terms}): ${l.qty} x ${money(benefit(l))} = ${money(gross(l))} gross`,
+      ...(ADMIN ? [`  Conditions: ${c.length ? c.map(k=>CONDITIONS.find(x=>x.k===k).label).join('; ') : 'none'}`] : []),
+      `  ${ADMIN ? 'Credited' : 'Estimated credit'}: ${money(gross(l))} x ${pctOf(vaf(l))} = ${money(raw(l))}${capped ? `, ${money(counted(l))} after the voucher cap` : ''}${exempt(l) ? (ADMIN ? ' (no cap: unconditional cash voucher)' : ' (cash voucher, no cap)') : ''}`].join('\n');
   });
-  return [`You get${tier ? ' ('+tier.name+' tier)' : ''}:`, ...get, '', '-------', `${EVENT.name} gets:`, ...(give.length ? give : ['- Nothing added yet']), `Total: ${money(t)}`].join('\n');
+  return [`You get${tier ? ' ('+tier.name+' tier)' : ''}:`, ...get, '', '-------', `${EVENT.name} gets:`, ...(give.length ? give : ['- Nothing added yet']), `Total: ${money(t)} (estimated)`, '', EVENT.disclaimer].join('\n');
 }
 $('#copy').addEventListener('click', async ()=>{
   const text = summaryText(), btn = $('#copy'), fb = $('#fallback');
@@ -590,6 +755,7 @@ $('#presented').textContent = EVENT.presenter;
 $('#eventName').textContent = EVENT.name;
 $('#when').textContent = EVENT.when;
 $('#venue').textContent = EVENT.venue;
+$('#disclaimer').textContent = EVENT.disclaimer;
 $('#fine').textContent = `${EVENT.note}${capNote} Copy your summary and send it to ${EVENT.contact} to start the conversation.`;
 renderList(); buildLadder(); buildBar(); update(); fitSummary();
 })();
