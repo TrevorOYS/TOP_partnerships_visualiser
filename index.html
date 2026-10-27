@@ -40,7 +40,7 @@ button{font:inherit;color:inherit;cursor:pointer}
   mask-image:radial-gradient(ellipse 42% 100% at 0% 0%,#000,transparent),radial-gradient(ellipse 42% 100% at 100% 0%,#000,transparent)}
 
 .top{margin-bottom:32px}
-.presented{font-family:var(--font-display);font-size:clamp(15px,2.4vw,19px);letter-spacing:.05em;text-transform:uppercase;line-height:1.2;margin:0 0 26px;max-width:36ch}
+.presented{font-family:var(--font-display);font-size:clamp(15px,2.4vw,19px);letter-spacing:.05em;text-transform:uppercase;line-height:1.2;margin:0 0 26px;white-space:pre-line}
 h1{font-family:var(--font-display);font-weight:400;font-size:clamp(56px,11vw,112px);line-height:.9;letter-spacing:.01em;text-transform:uppercase;margin:0;text-wrap:balance}
 .proposal{font-family:var(--font-display);font-size:clamp(26px,5vw,48px);line-height:1;letter-spacing:.02em;text-transform:uppercase;margin:8px 0 0;color:var(--orange)}
 .rule{border:0;border-top:1px solid rgba(255,255,255,.7);margin:22px 0 14px;max-width:420px}
@@ -222,7 +222,7 @@ select.in{appearance:auto}
 <div class="dots" aria-hidden="true"></div>
 <div class="wrap">
   <header class="top">
-    <p class="presented" id="presented">Presented by Singapore Management University, with support from AIA</p>
+    <p class="presented" id="presented">Presented by Singapore Management University</p>
     <h1 id="eventName">Tower of Power</h1>
     <p class="proposal">Partnership builder</p>
     <hr class="rule">
@@ -316,7 +316,7 @@ select.in{appearance:auto}
    ============================================================ */
 const EVENT = {
   name: "Tower of Power",
-  presenter: "Presented by Singapore Management University, with support from AIA",
+  presenter: "Presented by\nSingapore Management University",
   when: "30 \u2013 31 January 2027",
   venue: "SMU Campus Green",
   contact: "partnerships.top@gmail.com",
@@ -370,7 +370,7 @@ const IDEAS = [
 const SEED = [];                         // items shown on first load (empty: sponsors start fresh)
 /* Most that voucher items can count toward the total, after the accessibility factor. Cash (fixed-value) vouchers
    with no redemption conditions are exempt and count in full. Set to 0 to turn the cap off. */
-const VOUCHER_CAP = 8000;
+const VOUCHER_CAP = 7000;
 
 /* Voucher types. base: field label for the price the discount is taken off (unused for fixed-value, which uses the
    face value); noun: the same in words, for prompts and the copied summary. */
